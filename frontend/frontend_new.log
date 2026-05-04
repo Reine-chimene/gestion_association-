@@ -1,0 +1,20 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+Ôû▓ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.56.1:3000
+- Environments: .env.local
+Ô£ô Ready in 1867ms
+ÔÜá Invalid next.config.ts options detected: 
+ÔÜá     Unrecognized key(s) in object: 'port', 'hostname'
+ÔÜá See more info here: https://nextjs.org/docs/messages/invalid-next-config
+ÔÜá Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\DELL\package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\DELL\Gestion_association\frontend\package-lock.json
+
+
