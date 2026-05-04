@@ -1,0 +1,1021 @@
+// Schéma Prisma - Système de Gestion d'Association Multi-Tenant
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// MULTI-TENANT & AUTH
+// ============================================
+
+model Tenant {
+  id        String   @id @default(uuid())
+  nom       String
+  slug      String   @unique
+  devise    String   @default("FCFA")
+  langue    String   @default("fr")
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users               User[]
+  membres             Membre[]
+  tontines            Tontine[]
+  prets               Pret[]
+  epargnes            Epargne[]
+  aides               Aide[]
+  projets             Projet[]
+  sanctions           Sanction[]
+  seances             Seance[]
+  caisses             Caisse[]
+  configurations      Configuration[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  complementFonds     ComplementFonds[]
+
+  @@map("tenants")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  tenantId          String
+  email             String
+  password          String
+  role              Role
+  twoFactorSecret   String?
+  twoFactorEnabled  Boolean   @default(false)
+  failedAttempts    Int       @default(0)
+  lockedUntil       DateTime?
+  lastLogin         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  membre            Membre?
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+enum Role {
+  PRESIDENT
+  TRESORIER
+  SECRETAIRE
+  COMMISSAIRE
+  MEMBRE
+}
+
+// ============================================
+// MEMBRES
+// ============================================
+
+model Membre {
+  id                    String        @id @default(uuid())
+  tenantId              String
+  userId                String?       @unique
+  numeroMembre          String
+  nom                   String
+  prenom                String
+  telephone             String
+  email                 String?
+  dateNaissance         DateTime?
+  situationMatrimoniale String?
+  nombreEnfants         Int?          @default(0)
+  adresse               String?
+  photoUrl              String?
+  cniUrl                String?
+  acteNaissanceUrl      String?
+  statut                StatutMembre  @default(ACTIF)
+  dateAdhesion          DateTime      @default(now())
+  parrainId             String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  user            User?         @relation(fields: [userId], references: [id])
+  parrain         Membre?       @relation("Parrainage", fields: [parrainId], references: [id])
+  filleuls        Membre[]      @relation("Parrainage")
+
+  partsTontine              PartTontine[]
+  prets                     Pret[]                    @relation("Emprunteur")
+  coEmprunteurs             CoEmprunteur[]
+  avalistes                 Garantie[]                @relation("Avaliste")
+  cotisationsEpargne        CotisationEpargne[]
+  aides                     Aide[]
+  contributionsProjets      ContributionProjet[]
+  sanctions                 Sanction[]
+  presences                 Presence[]
+  depots                    DepotEnLigne[]
+  paiementsComplementFonds  PaiementComplementFonds[]
+  ventesToursAchetees       VenteTour[]               @relation("AcheteurVenteTour")
+  ventesInteretsVendeur     VenteInterets[]           @relation("VendeurVenteInterets")
+  ventesInteretsAcheteur    VenteInterets[]           @relation("AcheteurVenteInterets")
+  toursGratuitsRecus        TourGratuit[]             @relation("BeneficiaireTourGratuit")
+
+  @@unique([tenantId, numeroMembre])
+  @@map("membres")
+}
+
+enum StatutMembre {
+  ACTIF
+  OBSERVATION
+  DEMISSIONNAIRE
+  DECEDE
+  MUTE
+}
+
+// ============================================
+// TONTINES
+// ============================================
+
+model Tontine {
+  id                  String        @id @default(uuid())
+  tenantId            String
+  nom                 String
+  type                TypeTontine
+  montantCotisation   Decimal       @db.Decimal(15, 2)
+  frequence           Frequence     @default(HEBDOMADAIRE)
+  dateDebut           DateTime
+  cycleActuel         Int           @default(1)
+  statut              StatutTontine @default(ACTIVE)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  tenant              Tenant          @relation(fields: [tenantId], references: [id])
+  parts               PartTontine[]
+  ventesTours         VenteTour[]
+  ventesInterets      VenteInterets[]
+  toursGratuits       TourGratuit[]
+
+  @@map("tontines")
+}
+
+enum TypeTontine {
+  CLASSIQUE_NON_VENDABLE
+  VENDABLE_ENCHERE
+  VENTE_INTERETS
+  HYBRIDE
+}
+
+enum Frequence {
+  JOURNALIERE
+  HEBDOMADAIRE
+  MENSUELLE
+}
+
+enum StatutTontine {
+  ACTIVE
+  TERMINEE
+  SUSPENDUE
+}
+
+model PartTontine {
+  id                         String   @id @default(uuid())
+  tontineId                  String
+  membreId                   String
+  nombreParts                Int      @default(1)
+  ordre                      Int
+  aBeneficie                 Boolean  @default(false)
+  interetsPrimairesAccumules Decimal  @default(0) @db.Decimal(15, 2)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  tontine                    Tontine  @relation(fields: [tontineId], references: [id])
+  membre                     Membre   @relation(fields: [membreId], references: [id])
+
+  @@unique([tontineId, membreId, ordre])
+  @@map("parts_tontine")
+}
+
+model VenteTour {
+  id                String   @id @default(uuid())
+  tontineId         String
+  acheteurId        String
+  tourOriginal      Int
+  montantOffre      Decimal  @db.Decimal(15, 2)
+  interetsPrimaires Decimal  @db.Decimal(15, 2)
+  date              DateTime @default(now())
+
+  tontine           Tontine  @relation(fields: [tontineId], references: [id])
+  acheteur          Membre   @relation("AcheteurVenteTour", fields: [acheteurId], references: [id])
+
+  @@map("ventes_tours")
+}
+
+model VenteInterets {
+  id                  String   @id @default(uuid())
+  tontineId           String
+  vendeurId           String
+  acheteurId          String
+  montantInterets     Decimal  @db.Decimal(15, 2)
+  montantOffre        Decimal  @db.Decimal(15, 2)
+  interetsSecondaires Decimal  @db.Decimal(15, 2)
+  modalite            String
+  date                DateTime @default(now())
+
+  tontine             Tontine  @relation(fields: [tontineId], references: [id])
+  vendeur             Membre   @relation("VendeurVenteInterets", fields: [vendeurId], references: [id])
+  acheteur            Membre   @relation("AcheteurVenteInterets", fields: [acheteurId], references: [id])
+
+  @@map("ventes_interets")
+}
+
+model TourGratuit {
+  id             String   @id @default(uuid())
+  tontineId      String
+  beneficiaireId String
+  montant        Decimal  @db.Decimal(15, 2)
+  date           DateTime @default(now())
+
+  tontine        Tontine  @relation(fields: [tontineId], references: [id])
+  beneficiaire   Membre   @relation("BeneficiaireTourGratuit", fields: [beneficiaireId], references: [id])
+
+  @@map("tours_gratuits")
+}
+
+// ============================================
+// PRÊTS
+// ============================================
+
+model Pret {
+  id                  String     @id @default(uuid())
+  tenantId            String
+  type                TypePret
+  emprunteurId        String
+  montant             Decimal    @db.Decimal(15, 2)
+  tauxInteret         Decimal    @db.Decimal(5, 2)
+  dureeEnMois         Int
+  montantTotal        Decimal?   @db.Decimal(15, 2)
+  soldeRestant        Decimal?   @db.Decimal(15, 2)
+  motif               String?
+  notes               String?
+  dateOctroi          DateTime   @default(now())
+  dateEcheance        DateTime
+  statut              StatutPret @default(EN_COURS)
+  nombreReconductions Int        @default(0)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  emprunteur    Membre         @relation("Emprunteur", fields: [emprunteurId], references: [id])
+  coEmprunteurs CoEmprunteur[]
+  garanties     Garantie[]
+  echeances     Echeance[]
+  paiements     Paiement[]
+
+  @@map("prets")
+}
+
+enum TypePret {
+  SUR_FONDS
+  TONTINE
+  MENSUEL
+  COLLECTIF
+  SUR_EPARGNE
+  ORDINAIRE
+  SOCIAL
+  URGENT
+  INVESTISSEMENT
+  SOLIDARITE
+}
+
+enum StatutPret {
+  EN_COURS
+  REMBOURSE
+  EN_RETARD
+  RECOUVREMENT
+  SOLDE
+}
+
+model CoEmprunteur {
+  id                 String  @id @default(uuid())
+  tenantId           String
+  pretId             String
+  membreId           String
+  partResponsabilite Decimal @db.Decimal(5, 2)
+
+  pret               Pret    @relation(fields: [pretId], references: [id])
+  membre             Membre  @relation(fields: [membreId], references: [id])
+
+  @@map("co_emprunteurs")
+}
+
+model Garantie {
+  id            String       @id @default(uuid())
+  tenantId      String
+  pretId        String
+  type          TypeGarantie
+  description   String
+  valeurEstimee Decimal?     @db.Decimal(15, 2)
+  avalisteId    String?
+  documentsUrl  String[]
+  documentUrl   String?
+
+  pret          Pret         @relation(fields: [pretId], references: [id])
+  avaliste      Membre?      @relation("Avaliste", fields: [avalisteId], references: [id])
+
+  @@map("garanties")
+}
+
+enum TypeGarantie {
+  MATERIELLE
+  FONDS
+  COTISATION
+  AVALISTE
+  CAUTION_SOLIDAIRE
+  EPARGNE_BLOQUEE
+  SALAIRE
+}
+
+model Echeance {
+  id              String         @id @default(uuid())
+  pretId          String
+  numeroEcheance  Int
+  dateEcheance    DateTime
+  montantCapital  Decimal        @db.Decimal(15, 2)
+  montantInterets Decimal        @db.Decimal(15, 2)
+  montantTotal    Decimal        @db.Decimal(15, 2)
+  montantPaye     Decimal?       @db.Decimal(15, 2) @default(0)
+  statut          StatutEcheance @default(EN_ATTENTE)
+  datePaiement    DateTime?
+
+  pret            Pret           @relation(fields: [pretId], references: [id])
+
+  @@map("echeances")
+}
+
+enum StatutEcheance {
+  A_VENIR
+  EN_ATTENTE
+  PAYEE
+  PARTIELLE
+  EN_RETARD
+}
+
+model Paiement {
+  id           String   @id @default(uuid())
+  tenantId     String
+  pretId       String
+  echeanceId   String?
+  montant      Decimal  @db.Decimal(15, 2)
+  datePaiement DateTime @default(now())
+  reference    String?
+  notes        String?
+
+  pret         Pret     @relation(fields: [pretId], references: [id])
+
+  @@map("paiements")
+}
+
+// ============================================
+// ÉPARGNES
+// ============================================
+
+model Epargne {
+  id          String      @id @default(uuid())
+  tenantId    String
+  type        TypeEpargne
+  dateDebut   DateTime
+  dateFin     DateTime?
+  cycleActuel Int         @default(1)
+  statut      String      @default("ACTIF")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id])
+  cotisations CotisationEpargne[]
+
+  @@map("epargnes")
+}
+
+enum TypeEpargne {
+  ANNUELLE
+  SCOLAIRE
+}
+
+model CotisationEpargne {
+  id        String   @id @default(uuid())
+  epargneId String
+  membreId  String
+  montant   Decimal  @db.Decimal(15, 2)
+  date      DateTime @default(now())
+
+  epargne   Epargne  @relation(fields: [epargneId], references: [id])
+  membre    Membre   @relation(fields: [membreId], references: [id])
+
+  @@map("cotisations_epargne")
+}
+
+// ============================================
+// AIDES
+// ============================================
+
+model Aide {
+  id                String           @id @default(uuid())
+  tenantId          String
+  type              TypeAide
+  beneficiaireId    String
+  typeBeneficiaire  TypeBeneficiaire
+  montant           Decimal          @db.Decimal(15, 2)
+  statut            StatutAide       @default(EN_ATTENTE)
+  justificatifs     String[]
+  commissionnaireId String?
+  dateDeclaration   DateTime         @default(now())
+  dateApprobation   DateTime?
+  approbateurId     String?
+
+  tenant       Tenant @relation(fields: [tenantId], references: [id])
+  beneficiaire Membre @relation(fields: [beneficiaireId], references: [id])
+
+  @@map("aides")
+}
+
+enum TypeAide {
+  MALADIE
+  DECES
+}
+
+enum TypeBeneficiaire {
+  MEMBRE
+  CONJOINT
+  PARENT
+  ENFANT
+}
+
+enum StatutAide {
+  EN_ATTENTE
+  APPROUVEE
+  REJETEE
+  VERSEE
+}
+
+// ============================================
+// PROJETS COMMUNAUTAIRES
+// ============================================
+
+model Projet {
+  id              String      @id @default(uuid())
+  tenantId        String
+  nom             String
+  description     String
+  duree           DureeProjet
+  objectif        Decimal     @db.Decimal(15, 2)
+  montantCollecte Decimal     @default(0) @db.Decimal(15, 2)
+  ephemere        Boolean     @default(false)
+  obligatoire     Boolean     @default(true)
+  dateDebut       DateTime    @default(now())
+  dateFin         DateTime?
+  statut          String      @default("ACTIF")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tenant        Tenant               @relation(fields: [tenantId], references: [id])
+  phases        PhaseProjet[]
+  contributions ContributionProjet[]
+
+  @@map("projets")
+}
+
+enum DureeProjet {
+  COURT
+  MOYEN
+  LONG
+}
+
+model PhaseProjet {
+  id         String   @id @default(uuid())
+  projetId   String
+  nom        String
+  objectif   Decimal  @db.Decimal(15, 2)
+  dateLimite DateTime
+  ordre      Int
+
+  projet     Projet   @relation(fields: [projetId], references: [id])
+
+  @@map("phases_projet")
+}
+
+model ContributionProjet {
+  id         String   @id @default(uuid())
+  projetId   String
+  membreId   String
+  montant    Decimal  @db.Decimal(15, 2)
+  date       DateTime @default(now())
+  volontaire Boolean  @default(false)
+
+  projet     Projet   @relation(fields: [projetId], references: [id])
+  membre     Membre   @relation(fields: [membreId], references: [id])
+
+  @@map("contributions_projet")
+}
+
+// ============================================
+// SANCTIONS
+// ============================================
+
+model Sanction {
+  id              String       @id @default(uuid())
+  tenantId        String
+  membreId        String
+  typeSanctionId  String
+  montant         Decimal      @db.Decimal(15, 2)
+  motif           String
+  dateApplication DateTime     @default(now())
+  statut          String       @default("IMPAYEE")
+  datePaiement    DateTime?
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  membre       Membre       @relation(fields: [membreId], references: [id])
+  typeSanction TypeSanction @relation(fields: [typeSanctionId], references: [id])
+
+  @@map("sanctions")
+}
+
+model TypeSanction {
+  id           String     @id @default(uuid())
+  tenantId     String
+  nom          String
+  modeCalcul   ModeCalcul
+  montantFixe  Decimal?   @db.Decimal(15, 2)
+  pourcentage  Decimal?   @db.Decimal(5, 2)
+  joursDeGrace Int        @default(0)
+  actif        Boolean    @default(true)
+
+  sanctions    Sanction[]
+
+  @@map("types_sanction")
+}
+
+enum ModeCalcul {
+  FIXE
+  POURCENTAGE
+  PROGRESSIF
+}
+
+// ============================================
+// COMPLÉMENT FONDS
+// ============================================
+
+model ComplementFonds {
+  id               String                @id @default(uuid())
+  tenantId         String
+  annee            Int
+  montantTotal     Decimal               @db.Decimal(15, 2)
+  montantParMembre Decimal               @db.Decimal(15, 2)
+  statut           StatutComplementFonds @default(ACTIF)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  tenant    Tenant                    @relation(fields: [tenantId], references: [id])
+  paiements PaiementComplementFonds[]
+
+  @@unique([tenantId, annee])
+  @@map("complement_fonds")
+}
+
+model PaiementComplementFonds {
+  id                String                 @id @default(uuid())
+  complementFondsId String
+  membreId          String
+  montant           Decimal                @db.Decimal(15, 2)
+  datePaiement      DateTime               @default(now())
+  modePaiement      ModePaiementComplement @default(PRELEVEMENT_AUTO)
+
+  complementFonds ComplementFonds @relation(fields: [complementFondsId], references: [id])
+  membre          Membre          @relation(fields: [membreId], references: [id])
+
+  @@map("paiements_complement_fonds")
+}
+
+enum StatutComplementFonds {
+  ACTIF
+  AUGMENTE
+  CASSE
+}
+
+enum ModePaiementComplement {
+  PRELEVEMENT_AUTO
+  PAIEMENT_MANUEL
+}
+
+// ============================================
+// SÉANCES
+// ============================================
+
+model Seance {
+  id            String       @id @default(uuid())
+  tenantId      String
+  date          DateTime
+  rapportSeance String?
+  statut        StatutSeance @default(EN_COURS)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  presences    Presence[]
+  procesVerbal ProcesVerbal?
+
+  @@map("seances")
+}
+
+enum StatutSeance {
+  EN_COURS
+  CLOTUREE
+}
+
+model Presence {
+  id            String   @id @default(uuid())
+  seanceId      String
+  membreId      String
+  present       Boolean
+  justification String?
+
+  seance        Seance   @relation(fields: [seanceId], references: [id])
+  membre        Membre   @relation(fields: [membreId], references: [id])
+
+  @@unique([seanceId, membreId])
+  @@map("presences")
+}
+
+model ProcesVerbal {
+  id           String   @id @default(uuid())
+  seanceId     String   @unique
+  contenu      String
+  signatures   String[]
+  dateCreation DateTime @default(now())
+
+  seance       Seance   @relation(fields: [seanceId], references: [id])
+
+  @@map("proces_verbaux")
+}
+
+// ============================================
+// CAISSES
+// ============================================
+
+model Caisse {
+  id        String     @id @default(uuid())
+  tenantId  String
+  type      TypeCaisse
+  solde     Decimal    @default(0) @db.Decimal(15, 2)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  mouvements Mouvement[]
+
+  @@unique([tenantId, type])
+  @@map("caisses")
+}
+
+enum TypeCaisse {
+  FONDS
+  SANCTION
+  EPARGNE
+}
+
+model Mouvement {
+  id            String   @id @default(uuid())
+  caisseId      String
+  type          String
+  montant       Decimal  @db.Decimal(15, 2)
+  soldeApres    Decimal  @db.Decimal(15, 2)
+  motif         String
+  justification String?
+  reference     String?
+  responsableId String
+  date          DateTime @default(now())
+
+  caisse        Caisse   @relation(fields: [caisseId], references: [id])
+
+  @@map("mouvements")
+}
+
+// ============================================
+// DÉPÔTS EN LIGNE
+// ============================================
+
+model DepotEnLigne {
+  id             String      @id @default(uuid())
+  membreId       String
+  type           String
+  montant        Decimal     @db.Decimal(15, 2)
+  preuveUrl      String
+  motifAbsence   String
+  statut         StatutDepot @default(EN_ATTENTE_VALIDATION)
+  dateDepot      DateTime    @default(now())
+  dateValidation DateTime?
+  validateurId   String?
+
+  membre         Membre      @relation(fields: [membreId], references: [id])
+
+  @@map("depots_en_ligne")
+}
+
+enum StatutDepot {
+  EN_ATTENTE_VALIDATION
+  VALIDE
+  REJETE
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id          String                @id @default(uuid())
+  tenantId    String
+  recipientId String
+  subject     String
+  message     String
+  channels    NotificationChannel[]
+  priority    String                @default("NORMAL")
+  statut      String                @default("EN_ATTENTE")
+  dateEnvoi   DateTime?
+  createdAt   DateTime              @default(now())
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id])
+
+  @@map("notifications")
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  IN_APP
+  PUSH
+}
+
+// ============================================
+// CONFIGURATION
+// ============================================
+
+model Configuration {
+  id        String   @id @default(uuid())
+  tenantId  String
+  cle       String
+  valeur    String
+  type      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, cle])
+  @@map("configurations")
+}
+
+// ============================================
+// AUDIT & TRAÇABILITÉ
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String
+  userId     String
+  entityType String
+  entityId   String
+  action     String
+  oldValue   String?
+  newValue   String?
+  timestamp  DateTime @default(now())
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// ============================================
+// NOUVELLES FONCTIONNALITÉS V2
+// ============================================
+
+model CessionTour {
+  id              String        @id @default(uuid())
+  tenantId        String
+  tontineId       String
+  cedantId        String
+  beneficiaireId  String
+  tourOriginal    Int
+  tourCede        Int
+  statut          StatutCession @default(EN_ATTENTE)
+  dateProposition DateTime      @default(now())
+  dateAcceptation DateTime?
+  dateValidation  DateTime?
+  validateurId    String?
+  motif           String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("cessions_tour")
+}
+
+enum StatutCession {
+  EN_ATTENTE
+  ACCEPTEE
+  VALIDEE
+  REJETEE
+}
+
+model Moratoire {
+  id                    String          @id @default(uuid())
+  tenantId              String
+  membreId              String
+  dateDebut             DateTime
+  dateFin               DateTime
+  motif                 String
+  suspensionPenalites   Boolean         @default(true)
+  suspensionCotisations Boolean         @default(false)
+  accordeParId          String
+  statut                StatutMoratoire @default(ACTIF)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@map("moratoires")
+}
+
+enum StatutMoratoire {
+  ACTIF
+  EXPIRE
+  REVOQUE
+}
+
+model CotisationAnticipee {
+  id                 String                    @id @default(uuid())
+  tenantId           String
+  membreId           String
+  montantTotal       Decimal                   @db.Decimal(15, 2)
+  nombreSeances      Int
+  seancesRestantes   Int
+  dateEnregistrement DateTime                  @default(now())
+  statut             StatutCotisationAnticipee @default(ACTIF)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@map("cotisations_anticipees")
+}
+
+enum StatutCotisationAnticipee {
+  ACTIF
+  EPUISE
+  REMBOURSE
+}
+
+model Delegation {
+  id                String           @id @default(uuid())
+  tenantId          String
+  roleDeleguant     Role
+  membreDeleguantId String
+  membreDelegueId   String
+  dateDebut         DateTime
+  dateFin           DateTime
+  permissions       String[]
+  statut            StatutDelegation @default(ACTIVE)
+  motif             String
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@map("delegations")
+}
+
+enum StatutDelegation {
+  ACTIVE
+  EXPIREE
+  REVOQUEE
+}
+
+model Reseau {
+  id           String   @id @default(uuid())
+  nom          String
+  description  String
+  associations String[]
+  superAdminId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  transferts TransfertMembre[]
+  dons       DonInterAssociation[]
+
+  @@map("reseaux")
+}
+
+model TransfertMembre {
+  id                  String          @id @default(uuid())
+  reseauId            String
+  membreId            String
+  tenantSourceId      String
+  tenantDestinationId String
+  dateTransfert       DateTime        @default(now())
+  motif               String
+  donneesTransferees  Json
+  statut              StatutTransfert @default(EN_COURS)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  reseau              Reseau          @relation(fields: [reseauId], references: [id])
+
+  @@map("transferts_membre")
+}
+
+enum StatutTransfert {
+  EN_COURS
+  COMPLETE
+  ECHOUE
+}
+
+model DonInterAssociation {
+  id                  String   @id @default(uuid())
+  reseauId            String
+  tenantSourceId      String
+  tenantDestinationId String
+  montant             Decimal  @db.Decimal(15, 2)
+  motif               String
+  date                DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  reseau              Reseau   @relation(fields: [reseauId], references: [id])
+
+  @@map("dons_inter_association")
+}
+
+model TauxConversion {
+  id                String     @id @default(uuid())
+  tenantId          String
+  deviseSource      String
+  deviseDestination String
+  taux              Decimal    @db.Decimal(10, 6)
+  dateApplication   DateTime   @default(now())
+  miseAJourParId    String
+  source            SourceTaux @default(MANUELLE)
+  createdAt         DateTime   @default(now())
+
+  @@map("taux_conversion")
+}
+
+enum SourceTaux {
+  MANUELLE
+  AUTOMATIQUE
+}
+
+model TransactionDevise {
+  id              String   @id @default(uuid())
+  tenantId        String
+  montantOriginal Decimal  @db.Decimal(15, 2)
+  deviseOriginal  String
+  montantConverti Decimal  @db.Decimal(15, 2)
+  deviseConvertie String
+  tauxUtilise     Decimal  @db.Decimal(10, 6)
+  dateTransaction DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@map("transactions_devise")
+}
+
+model VerificationMobileMoney {
+  id                  String               @id @default(uuid())
+  tenantId            String
+  depotEnLigneId      String
+  operateur           OperateurMobileMoney
+  numeroTransaction   String
+  montantAttendu      Decimal              @db.Decimal(15, 2)
+  montantVerifie      Decimal?             @db.Decimal(15, 2)
+  destinataireAttendu String
+  destinataireVerifie String?
+  statut              StatutVerification   @default(EN_COURS)
+  messageErreur       String?
+  dateVerification    DateTime             @default(now())
+  createdAt           DateTime             @default(now())
+
+  @@map("verifications_mobile_money")
+}
+
+enum OperateurMobileMoney {
+  MTN
+  ORANGE
+  WAVE
+}
+
+enum StatutVerification {
+  EN_COURS
+  VALIDE
+  INVALIDE
+  ERREUR
+}
+
+model CycleArchive {
+  id               String   @id @default(uuid())
+  tenantId         String
+  entityType       String
+  entityId         String
+  numeroCycle      Int
+  dateDebut        DateTime
+  dateFin          DateTime
+  donneesArchivees Json
+  statistiques     Json
+  createdAt        DateTime @default(now())
+
+  @@map("cycles_archives")
+}

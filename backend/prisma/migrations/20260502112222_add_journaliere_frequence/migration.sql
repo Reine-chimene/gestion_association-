@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "Frequence" ADD VALUE 'JOURNALIERE';
