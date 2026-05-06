@@ -13,7 +13,7 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    const { email, password, tenantId, role } = registerDto;
+    const { email, password, tenantId, role, associationNom, associationSlug, associationDevise, associationLangue } = registerDto;
 
     // Vérifier si l'utilisateur existe déjà
     const existingUser = await this.prisma.user.findUnique({
@@ -24,6 +24,29 @@ export class AuthService {
       throw new UnauthorizedException('Email already exists');
     }
 
+    // Vérifier si le tenant existe, sinon le créer
+    let tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+
+    if (!tenant) {
+      // Si le tenant n'existe pas, on le crée avec les infos de l'association
+      const nom = associationNom || `Association ${tenantId}`;
+      const slug = associationSlug || tenantId.toLowerCase().replace(/\s+/g, '-');
+      const devise = associationDevise || 'FCFA';
+      const langue = associationLangue || 'fr';
+
+      tenant = await this.prisma.tenant.create({
+        data: {
+          id: tenantId,
+          nom,
+          slug,
+          devise,
+          langue,
+        },
+      });
+    }
+
     // Hasher le mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -32,7 +55,7 @@ export class AuthService {
       data: {
         email,
         password: hashedPassword,
-        tenantId,
+        tenantId: tenant.id,
         role,
       },
     });
@@ -41,6 +64,7 @@ export class AuthService {
       id: user.id,
       email: user.email,
       role: user.role,
+      tenantId: user.tenantId,
     };
   }
 

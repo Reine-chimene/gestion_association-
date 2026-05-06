@@ -14,7 +14,16 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string, tenantId: string) => Promise<void>;
-  register: (email: string, password: string, role: string, tenantId: string) => Promise<void>;
+  register: (
+    email: string, 
+    password: string, 
+    role: string, 
+    tenantId: string,
+    associationNom?: string,
+    associationSlug?: string,
+    associationDevise?: string,
+    associationLangue?: string
+  ) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<void>;
 }
@@ -44,14 +53,21 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  register: async (email, password, role, tenantId) => {
+  register: async (email, password, role, tenantId, associationNom, associationSlug, associationDevise, associationLangue) => {
     try {
-      await api.post('/auth/register', {
+      const data: any = {
         email,
         password,
         role,
         tenantId,
-      });
+      };
+      
+      if (associationNom) data.associationNom = associationNom;
+      if (associationSlug) data.associationSlug = associationSlug;
+      if (associationDevise) data.associationDevise = associationDevise;
+      if (associationLangue) data.associationLangue = associationLangue;
+      
+      await api.post('/auth/register', data);
     } catch (error) {
       throw error;
     }
